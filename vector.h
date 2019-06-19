@@ -121,8 +121,25 @@ struct buffer {
     ++size();
   }
 
+  void push_back(T&& val) {
+    if (size() != capacity()) {
+      new(begin() + size()) T(std::move(val));
+    } else {
+      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
+      try {
+        new(begin(new_data) + size()) T(std::move(val));
+      } catch (...) {
+        destroy(new_data);
+        throw;
+      }
+      clear();
+      data_ = new_data;
+    }
+    ++size();
+  }
+
   template <typename... Args>
-  void emplace_back(Args&&... args) {
+  void emplace_back(Args&& ... args) {
     if (size() != capacity()) {
       new(begin() + size()) T(std::forward<Args>(args)...);
     } else {
@@ -410,8 +427,23 @@ struct vector {
     as_buffer().push_back(val);
   }
 
+  void push_back(T&& val) {
+    if (holds_nothing()) {
+      data_ = std::move(val);
+      return;
+    }
+    if (holds_value()) {
+      auto new_buf = buffer<T>(as_value());
+      new_buf.push_back(std::move(val));
+      data_ = new_buf;
+      return;
+    }
+    as_buffer().detach();
+    as_buffer().push_back(std::move(val));
+  }
+
   template <typename... Args>
-  void emplace_back(Args&&... args) {
+  void emplace_back(Args&& ... args) {
     if (holds_nothing()) {
       data_ = T(std::forward<Args>(args)...);
       return;
@@ -471,6 +503,27 @@ struct vector {
   iterator insert(const_iterator pos, T const& val) {
     auto pos_i = pos - begin();
     push_back(val);
+    pos = begin() + pos_i;
+    for (auto it = end() - 1; it != pos; --it) {
+      std::iter_swap(it, it - 1);
+    }
+    return iterator(pos);
+  }
+
+  iterator insert(const_iterator pos, T&& val) {
+    auto pos_i = pos - begin();
+    push_back(std::move(val));
+    pos = begin() + pos_i;
+    for (auto it = end() - 1; it != pos; --it) {
+      std::iter_swap(it, it - 1);
+    }
+    return iterator(pos);
+  }
+
+  template <typename... Args>
+  iterator emplace(const_iterator pos, Args&& ... args) {
+    auto pos_i = pos - begin();
+    emplace_back(std::forward<Args>(args)...);
     pos = begin() + pos_i;
     for (auto it = end() - 1; it != pos; --it) {
       std::iter_swap(it, it - 1);
@@ -563,5 +616,9 @@ struct vector {
     push_back(T(), n - size());
   }
 };
+
+template <typename InputIterator> vector(InputIterator first,
+                                         InputIterator last) ->
+vector<typename std::iterator_traits<InputIterator>::value_type>;
 
 #endif //VECTOR_H
