@@ -40,6 +40,10 @@ struct buffer {
     push_back(val);
   }
 
+  explicit buffer(T&& val) : buffer() {
+    push_back(std::move(val));
+  }
+
   size_t capacity(char const* p) const noexcept {
     return *reinterpret_cast<size_t const*>(p);
   }
@@ -204,11 +208,16 @@ struct buffer {
     char* new_data = allocate(cap);
     size(new_data) = size();
     ref_count(new_data) = 1;
-    try {
-      std::uninitialized_copy_n(begin(), size(), begin(new_data));
-    } catch (...) {
-      operator delete(new_data);
-      throw;
+    auto end = begin() + size();
+    for (auto it = begin(); it != end; ++it) {
+      auto where = begin(new_data) + (it - begin());
+      try {
+        new(where) T(std::move_if_noexcept(*it));
+      } catch (...) {
+        std::destroy(begin(new_data), where);
+        operator delete(new_data);
+        throw;
+      }
     }
     return new_data;
   }
@@ -247,7 +256,7 @@ struct vector {
 
   template <typename InputIterator>
   void assign(InputIterator first, InputIterator last) {
-    *this = vector(first, last);
+    *this = std::move(vector(first, last));
   }
 
   vector(vector&& other) {
@@ -418,7 +427,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(as_value());
+      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
       new_buf.push_back(val);
       data_ = new_buf;
       return;
@@ -433,7 +442,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(as_value());
+      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
       new_buf.push_back(std::move(val));
       data_ = new_buf;
       return;
@@ -449,7 +458,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(as_value());
+      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
       new_buf.emplace_back(std::forward<Args>(args)...);
       data_ = new_buf;
       return;
