@@ -972,6 +972,19 @@ TEST(correctness, swap_non_empty_non_empty)
     });
 }
 
+TEST(correctness, max_align_t) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    using dtype = max_align_t;
+    vector<dtype> v;
+    EXPECT_EQ(v.size(), 0u);
+    for (size_t i = 0; i != 100; ++i) {
+      v.push_back(dtype());
+      EXPECT_EQ(v.size(), i + 1);
+    }
+  });
+}
+
 TEST(exceptions, nothrow_default_ctor)
 {
     faulty_run([]

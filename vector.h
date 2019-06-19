@@ -13,10 +13,14 @@
 //  no default constructor
 //  iterators
 
+//  TODO: clear() should not change capacity
+//  TODO: sizeof
+
 #include <variant>
 #include <memory>
 #include <algorithm>
 #include <utility>
+#include <cassert>
 
 template <typename T, size_t INITIAL_CAPACITY = 4>
 struct buffer {
@@ -28,7 +32,7 @@ struct buffer {
     ref_count() = 1;
   }
 
-  buffer(buffer const& other) : data_(other.data_) {
+  buffer(buffer const& other) noexcept : data_(other.data_) {
     ++ref_count();
   }
 
@@ -40,7 +44,7 @@ struct buffer {
     return *reinterpret_cast<size_t const*>(p);
   }
 
-  size_t& capacity(char* p) {
+  size_t& capacity(char* p) noexcept {
     return *reinterpret_cast<size_t*>(p);
   }
 
@@ -48,7 +52,7 @@ struct buffer {
     return capacity(data_);
   }
 
-  size_t& capacity() {
+  size_t& capacity() noexcept {
     return capacity(data_);
   }
 
@@ -56,7 +60,7 @@ struct buffer {
     return *(reinterpret_cast<size_t const*>(p) + 1);
   }
 
-  size_t& size(char* p) {
+  size_t& size(char* p) noexcept {
     return *(reinterpret_cast<size_t*>(p) + 1);
   }
 
@@ -64,7 +68,7 @@ struct buffer {
     return size(data_);
   }
 
-  size_t& size() {
+  size_t& size() noexcept {
     return size(data_);
   }
 
@@ -72,7 +76,7 @@ struct buffer {
     return *(reinterpret_cast<size_t const*>(p) + 2);
   }
 
-  size_t& ref_count(char* p) {
+  size_t& ref_count(char* p) noexcept {
     return *(reinterpret_cast<size_t*>(p) + 2);
   }
 
@@ -80,11 +84,11 @@ struct buffer {
     return ref_count(data_);
   }
 
-  size_t& ref_count() {
+  size_t& ref_count() noexcept {
     return ref_count(data_);
   }
 
-  iterator begin(char* p) {
+  iterator begin(char* p) noexcept {
     return reinterpret_cast<T*>(p + DATA_SHIFT);
   }
 
@@ -92,7 +96,7 @@ struct buffer {
     return reinterpret_cast<T const*>(p + DATA_SHIFT);
   }
 
-  iterator begin() {
+  iterator begin() noexcept {
     return begin(data_);
   }
 
@@ -108,8 +112,7 @@ struct buffer {
       try {
         new(begin(new_data) + size()) T(val);
       } catch (...) {
-        std::destroy(begin(new_data), begin(new_data) + size());
-        operator delete(new_data);
+        destroy(new_data);
         throw;
       }
       clear();
@@ -118,7 +121,26 @@ struct buffer {
     ++size();
   }
 
-  void pop_back() {
+  template <typename... Args>
+  void emplace_back(Args&&... args) {
+    if (size() != capacity()) {
+      new(begin() + size()) T(std::forward<Args>(args)...);
+    } else {
+      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
+      try {
+        new(begin(new_data) + size()) T(std::forward<Args>(args)...);
+      } catch (...) {
+        destroy(new_data);
+        throw;
+      }
+      clear();
+      data_ = new_data;
+    }
+    ++size();
+  }
+
+  void pop_back() noexcept {
+    assert(size());
     (begin() + (--size()))->~T();
   }
 
@@ -136,14 +158,13 @@ struct buffer {
     }
   }
 
-  void clear() {
+  void clear() noexcept {
     if (!(--ref_count())) {
-      std::destroy(begin(), begin() + size());
-      operator delete(data_);
+      destroy(data_);
     }
   }
 
-  ~buffer() {
+  ~buffer() noexcept {
     clear();
   }
 
@@ -167,7 +188,7 @@ struct buffer {
     size(new_data) = size();
     ref_count(new_data) = 1;
     try {
-      std::uninitialized_copy(begin(), begin() + size(), begin(new_data));
+      std::uninitialized_copy_n(begin(), size(), begin(new_data));
     } catch (...) {
       operator delete(new_data);
       throw;
@@ -179,6 +200,11 @@ struct buffer {
     char* new_data = make_copy(cap);
     clear();
     data_ = new_data;
+  }
+
+  void destroy(char* p) noexcept {
+    std::destroy_n(begin(p), size(p));
+    operator delete(p);
   }
 };
 
@@ -250,10 +276,7 @@ struct vector {
   }
 
   size_t capacity() const noexcept {
-    if (holds_nothing()) {
-      return 0;
-    }
-    if (holds_value()) {
+    if (holds_nothing() || holds_value()) {
       return 1;
     }
     return as_buffer().capacity();
@@ -317,10 +340,12 @@ struct vector {
   }
 
   T& operator[](size_t at) {
+    assert(at < size());
     return *(begin() + at);
   }
 
   T const& operator[](size_t at) const noexcept {
+    assert(at < size());
     return *(begin() + at);
   }
 
@@ -385,6 +410,22 @@ struct vector {
     as_buffer().push_back(val);
   }
 
+  template <typename... Args>
+  void emplace_back(Args&&... args) {
+    if (holds_nothing()) {
+      data_ = T(std::forward<Args>(args)...);
+      return;
+    }
+    if (holds_value()) {
+      auto new_buf = buffer<T>(as_value());
+      new_buf.emplace_back(std::forward<Args>(args)...);
+      data_ = new_buf;
+      return;
+    }
+    as_buffer().detach();
+    as_buffer().emplace_back(std::forward<Args>(args)...);
+  }
+
   void push_back(T const& val, size_t n) {
     size_t sz = size();
     while (n--) {
@@ -398,6 +439,7 @@ struct vector {
   }
 
   void pop_back() {
+    assert(!empty());
     if (holds_value()) {
       clear();
       return;
@@ -407,7 +449,7 @@ struct vector {
   }
 
   void reserve(size_t n) {
-    if (n <= std::max<size_t>(1, capacity())) {
+    if (n <= capacity()) {
       return;
     }
     if (holds_nothing()) {
@@ -492,7 +534,7 @@ struct vector {
     return std::holds_alternative<buffer<T>>(data_);
   }
 
-  T& as_value() {
+  T& as_value() noexcept {
     return std::get<T>(data_);
   }
 
@@ -500,7 +542,7 @@ struct vector {
     return std::get<T>(data_);
   }
 
-  buffer<T>& as_buffer() {
+  buffer<T>& as_buffer() noexcept {
     return std::get<buffer<T>>(data_);
   }
 
@@ -509,9 +551,7 @@ struct vector {
   }
 
   void resize_unspecified(size_t n, std::false_type) {
-    if (n > size()) {
-      throw std::logic_error("specify fill value");
-    }
+    assert(n <= size());
     erase(begin() + n, end());
   }
 
