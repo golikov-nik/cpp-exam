@@ -17,229 +17,18 @@
 //  TODO: sizeof
 
 #include <variant>
-#include <memory>
-#include <algorithm>
 #include <utility>
 #include <cassert>
+#include <algorithm>
 
-template <typename T, size_t INITIAL_CAPACITY = 4>
-struct buffer {
-  using iterator = T*;
-  using const_iterator = T const*;
-
-  buffer() : data_(allocate(INITIAL_CAPACITY)) {
-    size() = 0;
-    ref_count() = 1;
-  }
-
-  buffer(buffer const& other) noexcept : data_(other.data_) {
-    ++ref_count();
-  }
-
-  explicit buffer(T const& val) : buffer() {
-    push_back(val);
-  }
-
-  explicit buffer(T&& val) : buffer() {
-    push_back(std::move(val));
-  }
-
-  size_t capacity(char const* p) const noexcept {
-    return *reinterpret_cast<size_t const*>(p);
-  }
-
-  size_t& capacity(char* p) noexcept {
-    return *reinterpret_cast<size_t*>(p);
-  }
-
-  size_t capacity() const noexcept {
-    return capacity(data_);
-  }
-
-  size_t& capacity() noexcept {
-    return capacity(data_);
-  }
-
-  size_t size(char const* p) const noexcept {
-    return *(reinterpret_cast<size_t const*>(p) + 1);
-  }
-
-  size_t& size(char* p) noexcept {
-    return *(reinterpret_cast<size_t*>(p) + 1);
-  }
-
-  size_t size() const noexcept {
-    return size(data_);
-  }
-
-  size_t& size() noexcept {
-    return size(data_);
-  }
-
-  size_t ref_count(char const* p) const noexcept {
-    return *(reinterpret_cast<size_t const*>(p) + 2);
-  }
-
-  size_t& ref_count(char* p) noexcept {
-    return *(reinterpret_cast<size_t*>(p) + 2);
-  }
-
-  size_t ref_count() const noexcept {
-    return ref_count(data_);
-  }
-
-  size_t& ref_count() noexcept {
-    return ref_count(data_);
-  }
-
-  iterator begin(char* p) noexcept {
-    return reinterpret_cast<T*>(p + DATA_SHIFT);
-  }
-
-  const_iterator begin(char const* p) const noexcept {
-    return reinterpret_cast<T const*>(p + DATA_SHIFT);
-  }
-
-  iterator begin() noexcept {
-    return begin(data_);
-  }
-
-  const_iterator begin() const noexcept {
-    return begin(data_);
-  }
-
-  void push_back(T const& val) {
-    if (size() != capacity()) {
-      new(begin() + size()) T(val);
-    } else {
-      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      try {
-        new(begin(new_data) + size()) T(val);
-      } catch (...) {
-        destroy(new_data);
-        throw;
-      }
-      clear();
-      data_ = new_data;
-    }
-    ++size();
-  }
-
-  void push_back(T&& val) {
-    if (size() != capacity()) {
-      new(begin() + size()) T(std::move(val));
-    } else {
-      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      try {
-        new(begin(new_data) + size()) T(std::move(val));
-      } catch (...) {
-        destroy(new_data);
-        throw;
-      }
-      clear();
-      data_ = new_data;
-    }
-    ++size();
-  }
-
-  template <typename... Args>
-  void emplace_back(Args&& ... args) {
-    if (size() != capacity()) {
-      new(begin() + size()) T(std::forward<Args>(args)...);
-    } else {
-      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      try {
-        new(begin(new_data) + size()) T(std::forward<Args>(args)...);
-      } catch (...) {
-        destroy(new_data);
-        throw;
-      }
-      clear();
-      data_ = new_data;
-    }
-    ++size();
-  }
-
-  void pop_back() noexcept {
-    assert(size());
-    (begin() + (--size()))->~T();
-  }
-
-  void reserve(size_t n) {
-    set_capacity(n);
-  }
-
-  void shrink_to_fit() {
-    set_capacity(size());
-  }
-
-  void detach() {
-    if (ref_count() != 1) {
-      set_capacity(capacity());
-    }
-  }
-
-  void clear() noexcept {
-    if (!(--ref_count())) {
-      destroy(data_);
-    }
-  }
-
-  ~buffer() noexcept {
-    clear();
-  }
-
- private:
-  static constexpr size_t const ALIGN_T = alignof(T);
-  static constexpr size_t const EXTRA = 3 * sizeof(size_t);
-  static constexpr size_t const GAP = (ALIGN_T - EXTRA % ALIGN_T) % ALIGN_T;
-  static constexpr size_t const DATA_SHIFT = EXTRA + GAP;
-
-  char* data_;
-
-  char* allocate(size_t cap) {
-    char* result = static_cast<char*>(operator new(
-            DATA_SHIFT + cap * sizeof(T)));
-    capacity(result) = cap;
-    return result;
-  }
-
-  char* make_copy(size_t cap) {
-    char* new_data = allocate(cap);
-    size(new_data) = size();
-    ref_count(new_data) = 1;
-    auto end = begin() + size();
-    for (auto it = begin(); it != end; ++it) {
-      auto where = begin(new_data) + (it - begin());
-      try {
-        new(where) T(std::move_if_noexcept(*it));
-      } catch (...) {
-        std::destroy(begin(new_data), where);
-        operator delete(new_data);
-        throw;
-      }
-    }
-    return new_data;
-  }
-
-  void set_capacity(size_t cap) {
-    char* new_data = make_copy(cap);
-    clear();
-    data_ = new_data;
-  }
-
-  void destroy(char* p) noexcept {
-    std::destroy_n(begin(p), size(p));
-    operator delete(p);
-  }
-};
+#include "basic_vector.h"
 
 template <typename T>
 struct vector {
   using value_type = T;
 
-  using iterator = typename buffer<T>::iterator;
-  using const_iterator = typename buffer<T>::const_iterator;
+  using iterator = typename basic_vector<T>::iterator;
+  using const_iterator = typename basic_vector<T>::const_iterator;
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
@@ -427,7 +216,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
+      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
       new_buf.push_back(val);
       data_ = new_buf;
       return;
@@ -442,7 +231,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
+      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
       new_buf.push_back(std::move(val));
       data_ = new_buf;
       return;
@@ -458,7 +247,7 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = buffer<T>(std::move_if_noexcept(as_value()));
+      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
       new_buf.emplace_back(std::forward<Args>(args)...);
       data_ = new_buf;
       return;
@@ -494,7 +283,7 @@ struct vector {
       return;
     }
     if (holds_nothing()) {
-      data_ = buffer<T>();
+      data_ = basic_vector<T>();
     }
     if (holds_value()) {
       move_to_buffer();
@@ -578,10 +367,10 @@ struct vector {
 
   using empty_t = std::monostate;
 
-  std::variant<empty_t, T, buffer<T>> data_;
+  std::variant<empty_t, T, basic_vector<T>> data_;
 
   void move_to_buffer() {
-    data_ = buffer<T>(as_value());
+    data_ = basic_vector<T>(as_value());
   }
 
   bool holds_nothing() const noexcept {
@@ -593,7 +382,7 @@ struct vector {
   }
 
   bool holds_buffer() const noexcept {
-    return std::holds_alternative<buffer<T>>(data_);
+    return std::holds_alternative<basic_vector<T>>(data_);
   }
 
   T& as_value() noexcept {
@@ -604,12 +393,12 @@ struct vector {
     return std::get<T>(data_);
   }
 
-  buffer<T>& as_buffer() noexcept {
-    return std::get<buffer<T>>(data_);
+  basic_vector<T>& as_buffer() noexcept {
+    return std::get<basic_vector<T>>(data_);
   }
 
-  buffer<T> const& as_buffer() const noexcept {
-    return std::get<buffer<T>>(data_);
+  basic_vector<T> const& as_buffer() const noexcept {
+    return std::get<basic_vector<T>>(data_);
   }
 
   void resize_unspecified(size_t n, std::false_type) {
