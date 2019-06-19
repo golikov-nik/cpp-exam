@@ -17,7 +17,6 @@
 #include <memory>
 #include <algorithm>
 #include <utility>
-#include <iostream>
 
 template <typename T, size_t INITIAL_CAPACITY = 4>
 struct buffer {
@@ -106,7 +105,13 @@ struct buffer {
       new(begin() + size()) T(val);
     } else {
       char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      new(begin(new_data) + size()) T(val);
+      try {
+        new(begin(new_data) + size()) T(val);
+      } catch (...) {
+        std::destroy(begin(new_data), begin(new_data) + size());
+        operator delete(new_data);
+        throw;
+      }
       clear();
       data_ = new_data;
     }
@@ -179,10 +184,10 @@ struct buffer {
 
 template <typename T>
 struct vector {
-  typedef T value_type;
+  using value_type = T;
 
-  typedef T* iterator;
-  typedef T const* const_iterator;
+  using iterator = typename buffer<T>::iterator;
+  using const_iterator = typename buffer<T>::const_iterator;
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
@@ -206,8 +211,9 @@ struct vector {
     swap(other);
   }
 
-  vector& operator=(vector other) {
-    swap(other);
+  vector& operator=(vector const& other) {
+    vector copy_(other);
+    swap(copy_);
     return *this;
   }
 
@@ -415,7 +421,7 @@ struct vector {
   }
 
   void shrink_to_fit() {
-    if (holds_buffer() && capacity() != size()) {
+    if (capacity() != size()) {
       as_buffer().shrink_to_fit();
     }
   }
@@ -436,6 +442,9 @@ struct vector {
 
   iterator erase(const_iterator first, const_iterator last) {
     auto result = iterator(last);
+    if (first == last) {
+      return result;
+    }
     size_t last_i = last - begin();
     size_t sz = size();
     size_t rotate = last_i % sz;
@@ -450,7 +459,7 @@ struct vector {
   }
 
   void resize(size_t n) {
-    _resize(n, std::is_default_constructible<T>());
+    resize_unspecified(n, std::is_default_constructible<T>());
   }
 
   void resize(size_t n, T const& val) {
@@ -499,14 +508,14 @@ struct vector {
     return std::get<buffer<T>>(data_);
   }
 
-  void _resize(size_t n, std::false_type) {
+  void resize_unspecified(size_t n, std::false_type) {
     if (n > size()) {
       throw std::logic_error("specify fill value");
     }
     erase(begin() + n, end());
   }
 
-  void _resize(size_t n, std::true_type) {
+  void resize_unspecified(size_t n, std::true_type) {
     if (n <= size()) {
       erase(begin() + n, end());
       return;

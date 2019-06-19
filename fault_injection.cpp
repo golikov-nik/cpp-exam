@@ -94,9 +94,11 @@ void fault_injection_point()
         throw injected_fault("injected fault");
 }
 
+#define TEST_EXCEPTIONS 1
+
 void faulty_run(std::function<void ()> const& f)
 {
-#if 1
+#if !TEST_EXCEPTIONS
     f();
 #else
     assert(!context);
