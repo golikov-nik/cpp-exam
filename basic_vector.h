@@ -9,8 +9,9 @@
 #include <utility>
 #include <algorithm>
 #include <memory>
+#include <cassert>
 
-template <typename T, size_t INITIAL_CAPACITY = 4>
+template <typename T, size_t _INITIAL_CAPACITY = 4>
 struct basic_vector {
   using iterator = T*;
   using const_iterator = T const*;
@@ -24,12 +25,10 @@ struct basic_vector {
     ++ref_count();
   }
 
-  explicit basic_vector(T const& val) : basic_vector() {
-    push_back(val);
-  }
-
-  explicit basic_vector(T&& val) : basic_vector() {
-    push_back(std::move(val));
+  template <typename S, typename =
+  std::enable_if_t<std::is_convertible_v<S, T>>>
+  explicit basic_vector(S&& val) : basic_vector() {
+    push_back(std::forward<S>(val));
   }
 
   size_t capacity(char const* p) const noexcept {
@@ -96,40 +95,6 @@ struct basic_vector {
     return begin(data_);
   }
 
-  void push_back(T const& val) {
-    if (size() != capacity()) {
-      new(begin() + size()) T(val);
-    } else {
-      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      try {
-        new(begin(new_data) + size()) T(val);
-      } catch (...) {
-        destroy(new_data);
-        throw;
-      }
-      clear();
-      data_ = new_data;
-    }
-    ++size();
-  }
-
-  void push_back(T&& val) {
-    if (size() != capacity()) {
-      new(begin() + size()) T(std::move(val));
-    } else {
-      char* new_data = make_copy(std::max(INITIAL_CAPACITY, 2 * capacity()));
-      try {
-        new(begin(new_data) + size()) T(std::move(val));
-      } catch (...) {
-        destroy(new_data);
-        throw;
-      }
-      clear();
-      data_ = new_data;
-    }
-    ++size();
-  }
-
   template <typename... Args>
   void emplace_back(Args&& ... args) {
     if (size() != capacity()) {
@@ -139,13 +104,19 @@ struct basic_vector {
       try {
         new(begin(new_data) + size()) T(std::forward<Args>(args)...);
       } catch (...) {
-        destroy(new_data);
+        revert(new_data, std::__move_if_noexcept_cond<T>());
         throw;
       }
-      clear();
+      destroy_self();
       data_ = new_data;
     }
     ++size();
+  }
+
+  template <typename S>
+  void push_back(S&& val) {
+    static_assert(std::is_convertible_v<S, T>);
+    emplace_back(std::forward<S>(val));
   }
 
   void pop_back() noexcept {
@@ -170,21 +141,22 @@ struct basic_vector {
   }
 
   void clear() noexcept {
-    if (!(--ref_count())) {
-      destroy(data_);
-    }
+    std::destroy_n(begin(), size());
+    size() = 0;
   }
 
   ~basic_vector() noexcept {
-    clear();
+    destroy_self();
   }
 
  private:
+
   static constexpr size_t const ALIGN_T = alignof(T);
   static constexpr size_t const EXTRA = 3 * sizeof(size_t);
   static constexpr size_t const GAP = (ALIGN_T - EXTRA % ALIGN_T) % ALIGN_T;
   static constexpr size_t const DATA_SHIFT = EXTRA + GAP;
-
+  static constexpr size_t const INITIAL_CAPACITY = std::max<size_t>(4,
+                                                                    _INITIAL_CAPACITY);
   char* data_;
 
   char* allocate(size_t cap) {
@@ -212,7 +184,7 @@ struct basic_vector {
 
   void set_capacity(size_t cap) {
     char* new_data = make_copy(cap);
-    clear();
+    destroy_self();
     data_ = new_data;
   }
 
@@ -223,6 +195,22 @@ struct basic_vector {
   void destroy_n(char* p, size_t n) noexcept {
     std::destroy_n(begin(p), n);
     operator delete(p);
+  }
+
+  void destroy_self() noexcept {
+    if (!(--ref_count())) {
+      destroy(data_);
+    }
+  }
+
+  //  copying was performed
+  void revert(char* new_data, std::true_type) {
+    destroy(new_data);
+  }
+
+  //  move was performed
+  void revert(char* new_data, std::false_type) {
+    std::move(begin(new_data), begin(new_data) + size(), begin());
   }
 };
 

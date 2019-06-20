@@ -13,9 +13,6 @@
 //  no default constructor
 //  iterators
 
-//  TODO: clear() should not change capacity
-//  TODO: sizeof
-
 #include <variant>
 #include <utility>
 #include <cassert>
@@ -34,18 +31,31 @@ struct vector {
 
   vector() noexcept = default;
 
+  vector(size_t count, T const& value) {
+    reserve(count);
+    while (count--) {
+      push_back(value);
+    }
+  }
+
+  explicit vector(size_t count) : vector(count, T()) {
+  }
+
   vector(vector const& other) : data_(other.data_) {
   }
 
-  template <typename InputIterator>
+  template <typename InputIterator, typename = std::_RequireInputIter<InputIterator>>
   vector(InputIterator first, InputIterator last) {
     reserve(std::distance(first, last));
     std::copy(first, last, std::back_inserter(*this));
   }
 
+  vector(std::initializer_list<T> init) : vector(init.begin(), init.end()) {
+  }
+
   template <typename InputIterator>
   void assign(InputIterator first, InputIterator last) {
-    *this = std::move(vector(first, last));
+    *this = vector(first, last);
   }
 
   vector(vector&& other) {
@@ -59,17 +69,22 @@ struct vector {
   }
 
   vector& operator=(vector&& other) {
-    clear();
     swap(other);
     return *this;
   }
 
-  ~vector() noexcept {
-    clear();
-  }
+  ~vector() noexcept = default;
 
-  void clear() noexcept {
-    data_ = empty_t();
+  void clear() {
+    if (holds_nothing()) {
+      return;
+    }
+    if (holds_value()) {
+      data_ = empty_t();
+      return;
+    }
+    as_vector().detach();
+    as_vector().clear();
   }
 
   void swap(vector& other) {
@@ -87,14 +102,14 @@ struct vector {
     if (holds_value()) {
       return 1;
     }
-    return as_buffer().size();
+    return as_vector().size();
   }
 
   size_t capacity() const noexcept {
     if (holds_nothing() || holds_value()) {
       return 1;
     }
-    return as_buffer().capacity();
+    return as_vector().capacity();
   }
 
   bool empty() const noexcept {
@@ -108,8 +123,8 @@ struct vector {
     if (holds_value()) {
       return std::addressof(as_value());
     }
-    as_buffer().detach();
-    return as_buffer().begin();
+    as_vector().detach();
+    return as_vector().begin();
   }
 
   const_iterator begin() const noexcept {
@@ -119,7 +134,7 @@ struct vector {
     if (holds_value()) {
       return std::addressof(as_value());
     }
-    return as_buffer().begin();
+    return as_vector().begin();
   }
 
   T* data() {
@@ -210,36 +225,6 @@ struct vector {
     return !(lhs < rhs);
   }
 
-  void push_back(T const& val) {
-    if (holds_nothing()) {
-      data_ = val;
-      return;
-    }
-    if (holds_value()) {
-      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
-      new_buf.push_back(val);
-      data_ = new_buf;
-      return;
-    }
-    as_buffer().detach();
-    as_buffer().push_back(val);
-  }
-
-  void push_back(T&& val) {
-    if (holds_nothing()) {
-      data_ = std::move(val);
-      return;
-    }
-    if (holds_value()) {
-      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
-      new_buf.push_back(std::move(val));
-      data_ = new_buf;
-      return;
-    }
-    as_buffer().detach();
-    as_buffer().push_back(std::move(val));
-  }
-
   template <typename... Args>
   void emplace_back(Args&& ... args) {
     if (holds_nothing()) {
@@ -247,17 +232,23 @@ struct vector {
       return;
     }
     if (holds_value()) {
-      auto new_buf = basic_vector<T>(std::move_if_noexcept(as_value()));
-      new_buf.emplace_back(std::forward<Args>(args)...);
-      data_ = new_buf;
+      auto new_data = basic_vector<T>(as_value());
+      new_data.emplace_back(std::forward<T>(args)...);
+      data_ = new_data;
       return;
     }
-    as_buffer().detach();
-    as_buffer().emplace_back(std::forward<Args>(args)...);
+    as_vector().detach();
+    as_vector().emplace_back(std::forward<Args>(args)...);
+  }
+
+  template <typename S, typename = std::enable_if_t<std::is_convertible_v<S, T>>>
+  void push_back(S&& val) {
+    emplace_back(std::forward<S>(val));
   }
 
   void push_back(T const& val, size_t n) {
     size_t sz = size();
+    reserve(sz + n);
     while (n--) {
       try {
         push_back(val);
@@ -274,8 +265,8 @@ struct vector {
       clear();
       return;
     }
-    as_buffer().detach();
-    as_buffer().pop_back();
+    as_vector().detach();
+    as_vector().pop_back();
   }
 
   void reserve(size_t n) {
@@ -286,36 +277,16 @@ struct vector {
       data_ = basic_vector<T>();
     }
     if (holds_value()) {
-      move_to_buffer();
+      data_ = basic_vector<T>(std::move_if_noexcept(as_value()));
     }
-    as_buffer().detach();
-    as_buffer().reserve(n);
+    as_vector().detach();
+    as_vector().reserve(n);
   }
 
   void shrink_to_fit() {
     if (capacity() != size()) {
-      as_buffer().shrink_to_fit();
+      as_vector().shrink_to_fit();
     }
-  }
-
-  iterator insert(const_iterator pos, T const& val) {
-    auto pos_i = pos - begin();
-    push_back(val);
-    pos = begin() + pos_i;
-    for (auto it = end() - 1; it != pos; --it) {
-      std::iter_swap(it, it - 1);
-    }
-    return iterator(pos);
-  }
-
-  iterator insert(const_iterator pos, T&& val) {
-    auto pos_i = pos - begin();
-    push_back(std::move(val));
-    pos = begin() + pos_i;
-    for (auto it = end() - 1; it != pos; --it) {
-      std::iter_swap(it, it - 1);
-    }
-    return iterator(pos);
   }
 
   template <typename... Args>
@@ -327,6 +298,11 @@ struct vector {
       std::iter_swap(it, it - 1);
     }
     return iterator(pos);
+  }
+
+  template <typename S, typename = std::enable_if_t<std::is_convertible_v<S, T>>>
+  iterator insert(const_iterator pos, S&& val) {
+    return emplace(pos, std::forward<S>(val));
   }
 
   iterator erase(const_iterator pos) {
@@ -366,12 +342,9 @@ struct vector {
  private:
 
   using empty_t = std::monostate;
+  using union_t = std::variant<empty_t, T, basic_vector<T>>;
 
-  std::variant<empty_t, T, basic_vector<T>> data_;
-
-  void move_to_buffer() {
-    data_ = basic_vector<T>(as_value());
-  }
+  union_t data_;
 
   bool holds_nothing() const noexcept {
     return std::holds_alternative<empty_t>(data_);
@@ -381,7 +354,7 @@ struct vector {
     return std::holds_alternative<T>(data_);
   }
 
-  bool holds_buffer() const noexcept {
+  bool holds_vector() const noexcept {
     return std::holds_alternative<basic_vector<T>>(data_);
   }
 
@@ -393,11 +366,11 @@ struct vector {
     return std::get<T>(data_);
   }
 
-  basic_vector<T>& as_buffer() noexcept {
+  basic_vector<T>& as_vector() noexcept {
     return std::get<basic_vector<T>>(data_);
   }
 
-  basic_vector<T> const& as_buffer() const noexcept {
+  basic_vector<T> const& as_vector() const noexcept {
     return std::get<basic_vector<T>>(data_);
   }
 
