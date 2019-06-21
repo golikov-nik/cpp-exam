@@ -38,7 +38,11 @@ struct vector {
     }
   }
 
-  explicit vector(size_t count) : vector(count, T()) {
+  explicit vector(size_t count) {
+    reserve(count);
+    while (count--) {
+      emplace_back();
+    }
   }
 
   vector(vector const& other) : data_(other.data_) {
@@ -233,7 +237,7 @@ struct vector {
     }
     if (holds_value()) {
       auto new_data = basic_vector<T>(as_value());
-      new_data.emplace_back(std::forward<T>(args)...);
+      new_data.emplace_back(std::forward<Args>(args)...);
       data_ = new_data;
       return;
     }
@@ -284,7 +288,7 @@ struct vector {
   }
 
   void shrink_to_fit() {
-    if (capacity() != size()) {
+    if (holds_vector() && capacity() != size()) {
       as_vector().shrink_to_fit();
     }
   }

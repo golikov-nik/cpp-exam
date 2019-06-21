@@ -2,35 +2,38 @@
 
 #include <set>
 
-struct counted
-{
-    struct no_new_instances_guard;
+struct counted {
+  struct no_new_instances_guard;
 
-    counted() = delete;
-    counted(int data);
-    counted(counted const& other);
-    ~counted();
+  counted() = delete;
 
-    counted& operator=(counted const& c);
-    operator int() const;
+  counted(int data);
 
-private:
-    int data;
+  counted(counted const& other);
 
-    static std::set<counted const*> instances;
+  ~counted();
+
+  counted& operator=(counted const& c);
+
+  operator int() const;
+
+ private:
+  int data;
+
+  static std::set<counted const*> instances;
 };
 
-struct counted::no_new_instances_guard
-{
-    no_new_instances_guard();
+struct counted::no_new_instances_guard {
+  no_new_instances_guard();
 
-    no_new_instances_guard(no_new_instances_guard const&) = delete;
-    no_new_instances_guard& operator=(no_new_instances_guard const&) = delete;
+  no_new_instances_guard(no_new_instances_guard const&) = delete;
 
-    ~no_new_instances_guard();
+  no_new_instances_guard& operator=(no_new_instances_guard const&) = delete;
 
-    void expect_no_instances();
+  ~no_new_instances_guard();
 
-private:
-    std::set<counted const*> old_instances;
+  void expect_no_instances();
+
+ private:
+  std::set<counted const*> old_instances;
 };

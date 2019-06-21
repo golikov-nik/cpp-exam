@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <numeric>
 #include "fault_injection.h"
 #include "counted.h"
 #include "vector.h"
@@ -972,19 +973,6 @@ TEST(correctness, swap_non_empty_non_empty)
     });
 }
 
-TEST(correctness, max_align_t) {
-  faulty_run([] {
-    counted::no_new_instances_guard g;
-    using dtype = max_align_t;
-    vector<dtype> v;
-    EXPECT_EQ(v.size(), 0u);
-    for (size_t i = 0; i != 100; ++i) {
-      v.push_back(dtype());
-      EXPECT_EQ(v.size(), i + 1);
-    }
-  });
-}
-
 TEST(exceptions, nothrow_default_ctor)
 {
     faulty_run([]
@@ -1029,4 +1017,241 @@ TEST(exceptions, reserve)
                 c.push_back(42);
         });
     });
+}
+
+TEST(my_tests, max_align_t) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    using dtype = max_align_t;
+    vector<dtype> v;
+    EXPECT_EQ(v.size(), 0u);
+    for (size_t i = 0; i != 100; ++i) {
+      v.push_back(dtype());
+      EXPECT_EQ(v.size(), i + 1);
+    }
+  });
+}
+
+TEST(my_tests, count_value_constructor) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c(10, 42);
+    ASSERT_EQ(c.size(), 10u);
+    for (size_t i = 0; i != 10; ++i) {
+      ASSERT_EQ(c[i], 42);
+    }
+    container d(0, 1);
+    container e(1, 5);
+    container_int ci(11);
+    ASSERT_EQ(ci.size(), 11u);
+    for (auto const& x : ci) {
+      ASSERT_EQ(x, 0);
+    }
+    std::string s = "hello";
+    vector<std::string> strs(10, s);
+    for (auto const& x : strs) {
+      ASSERT_EQ(x, s);
+    }
+  });
+}
+
+TEST(my_tests, range_constructor) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    std::vector<int> v(10);
+    std::iota(v.begin(), v.end(), 0);
+    container c(v.begin() + 3, v.begin() + 6);
+    ASSERT_EQ(c.size(), 3u);
+    for (size_t i = 0; i != 3; ++i) {
+      ASSERT_EQ(c[i], i + 3);
+    }
+    vector d(c.begin(), c.end());
+    ASSERT_EQ(d.size(), 3u);
+    for (size_t i = 0; i != 3; ++i) {
+      ASSERT_EQ(d[i], i + 3);
+    }
+    vector e(d.begin(), d.begin());
+    ASSERT_EQ(e.size(), 0u);
+  });
+}
+
+TEST(my_tests, assign) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c(5, 0);
+    container d;
+    d.assign(c.begin(), c.end());
+    ASSERT_EQ(d.size(), 5u);
+    for (size_t i = 0; i != 5; ++i) {
+      ASSERT_EQ(d[i], c[i]);
+    }
+    d.assign(d.begin(), d.begin() + 3);
+    for (size_t i = 0; i != 3; ++i) {
+      ASSERT_EQ(d[i], 0);
+    }
+  });
+}
+
+TEST(my_tests, move_constructor) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c;
+    c.push_back(1);
+    c.push_back(2);
+    c.push_back(3);
+
+    container d = std::move(c);
+    d[2] = 10;
+    EXPECT_EQ(10, d[2]);
+
+    d.push_back(4);
+    EXPECT_EQ(4u, d.size());
+  });
+}
+
+TEST(my_tests, clear) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c;
+    c.clear();
+    ASSERT_EQ(c.size(), 0u);
+    c.push_back(1);
+    c.clear();
+    ASSERT_EQ(c.capacity(), 1u);
+    ASSERT_EQ(c.size(), 0u);
+    c.push_back(1);
+    c.push_back(2);
+    ASSERT_EQ(c.size(), 2u);
+    auto cap = c.capacity();
+    c.clear();
+    ASSERT_EQ(c.capacity(), cap);
+    ASSERT_EQ(c.size(), 0u);
+    c.clear();
+    ASSERT_EQ(c.capacity(), cap);
+    ASSERT_EQ(c.size(), 0u);
+  });
+}
+
+TEST(my_tests, emplace_back) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c;
+    c.emplace_back(1);
+    c.emplace_back(2);
+    c.emplace_back(3);
+    ASSERT_EQ(c.size(), 3u);
+    c.push_back(4);
+    ASSERT_EQ(c.size(), 4u);
+    c.emplace_back(5);
+    ASSERT_EQ(c.size(), 5u);
+    vector<std::string> v;
+    v.emplace_back("hello");
+    v.emplace_back();
+    v.emplace_back();
+    ASSERT_EQ(v.size(), 3u);
+    ASSERT_EQ(v[0], "hello");
+    ASSERT_EQ(v[1], "");
+    ASSERT_EQ(v[2], "");
+  });
+}
+
+TEST(my_tests, shrink_to_fit) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c;
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), 0u);
+    c.push_back(1);
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 1);
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 1);
+    c.push_back(2);
+    ASSERT_EQ(c.size(), 2u);
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), c.capacity());
+    ASSERT_EQ(c.size(), 2u);
+    ASSERT_EQ(c[0], 1);
+    ASSERT_EQ(c[1], 2);
+    c.pop_back();
+    c.pop_back();
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), 0u);
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), 0u);
+    c.push_back(1);
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 1);
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), 1u);
+    ASSERT_EQ(c[0], 1);
+    c.push_back(2);
+    ASSERT_EQ(c.size(), 2u);
+    c.shrink_to_fit();
+    ASSERT_EQ(c.size(), c.capacity());
+    ASSERT_EQ(c.size(), 2u);
+    ASSERT_EQ(c[0], 1);
+    ASSERT_EQ(c[1], 2);
+  });
+}
+
+TEST(my_tests, move_push_back) {
+  faulty_run([] {
+    using std::string;
+    std::vector<string> v;
+    vector<string> my_v;
+    for (size_t i = 0; i != 10; ++i) {
+      v.emplace_back("hello");
+      my_v.push_back(std::move(v[i]));
+      ASSERT_EQ(my_v.size(), i + 1);
+      ASSERT_EQ(my_v[i], "hello");
+    }
+  });
+}
+
+TEST(my_tests, resize) {
+  faulty_run([] {
+    counted::no_new_instances_guard g;
+    container c;
+    for (size_t i = 0; i != 5; ++i) {
+      c.push_back(i);
+    }
+    c.resize(3);
+    ASSERT_EQ(3u, c.size());
+    ASSERT_EQ(c[0], 0);
+    ASSERT_EQ(c[1], 1);
+    ASSERT_EQ(c[2], 2);
+    c.resize(0);
+    ASSERT_EQ(0, c.size());
+    for (size_t i = 0; i != 5; ++i) {
+      c.push_back(i);
+    }
+    c.resize(7u, 1);
+    ASSERT_EQ(7u, c.size());
+    for (size_t i = 5; i != 7; ++i) {
+      ASSERT_EQ(c[i], 1);
+    }
+    c.resize(3, 2);
+    ASSERT_EQ(3u, c.size());
+    ASSERT_EQ(c[0], 0);
+    ASSERT_EQ(c[1], 1);
+    ASSERT_EQ(c[2], 2);
+    c.resize(1);
+    ASSERT_EQ(1u, c.size());
+    ASSERT_EQ(c[0], 0);
+    container_int ci;
+    ci.resize(10);
+    ASSERT_EQ(ci.size(), 10u);
+    for (int x : ci) {
+      ASSERT_EQ(x, 0);
+    }
+    ci.resize(5, 5);
+    ASSERT_EQ(ci.size(), 5u);
+    for (int x : ci) {
+      ASSERT_EQ(x, 0);
+    }
+    ci.resize(0);
+    ASSERT_EQ(0u, ci.size());
+  });
 }

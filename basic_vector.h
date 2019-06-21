@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <memory>
 #include <cassert>
+#include <iostream>
 
 template <typename T, size_t _INITIAL_CAPACITY = 4>
 struct basic_vector {
@@ -35,15 +36,7 @@ struct basic_vector {
     return *reinterpret_cast<size_t const*>(p);
   }
 
-  size_t& capacity(char* p) noexcept {
-    return *reinterpret_cast<size_t*>(p);
-  }
-
   size_t capacity() const noexcept {
-    return capacity(data_);
-  }
-
-  size_t& capacity() noexcept {
     return capacity(data_);
   }
 
@@ -51,15 +44,7 @@ struct basic_vector {
     return *(reinterpret_cast<size_t const*>(p) + 1);
   }
 
-  size_t& size(char* p) noexcept {
-    return *(reinterpret_cast<size_t*>(p) + 1);
-  }
-
   size_t size() const noexcept {
-    return size(data_);
-  }
-
-  size_t& size() noexcept {
     return size(data_);
   }
 
@@ -67,15 +52,7 @@ struct basic_vector {
     return *(reinterpret_cast<size_t const*>(p) + 2);
   }
 
-  size_t& ref_count(char* p) noexcept {
-    return *(reinterpret_cast<size_t*>(p) + 2);
-  }
-
   size_t ref_count() const noexcept {
-    return ref_count(data_);
-  }
-
-  size_t& ref_count() noexcept {
     return ref_count(data_);
   }
 
@@ -125,12 +102,12 @@ struct basic_vector {
   }
 
   void reserve(size_t n) {
-    assert(n > capacity());
-    set_capacity(n);
+    if (n > capacity()) {
+      set_capacity(n);
+    }
   }
 
   void shrink_to_fit() {
-    assert(capacity() != size());
     set_capacity(size());
   }
 
@@ -211,6 +188,30 @@ struct basic_vector {
   //  move was performed
   void revert(char* new_data, std::false_type) {
     std::move(begin(new_data), begin(new_data) + size(), begin());
+  }
+
+  size_t& capacity(char* p) noexcept {
+    return *reinterpret_cast<size_t*>(p);
+  }
+
+  size_t& capacity() noexcept {
+    return capacity(data_);
+  }
+
+  size_t& size(char* p) noexcept {
+    return *(reinterpret_cast<size_t*>(p) + 1);
+  }
+
+  size_t& size() noexcept {
+    return size(data_);
+  }
+
+  size_t& ref_count(char* p) noexcept {
+    return *(reinterpret_cast<size_t*>(p) + 2);
+  }
+
+  size_t& ref_count() noexcept {
+    return ref_count(data_);
   }
 };
 
