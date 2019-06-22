@@ -14,7 +14,18 @@ add_executable(vector_testing
                vector.h
                basic_vector.h)
 
-#add_executable(main main.cpp vector.h basic_vector.h)
+add_executable(list_testing
+               list.cpp
+               counted.h
+               counted.cpp
+               fault_injection.cpp
+               fault_injection.h
+               gtest/gtest-all.cc
+               gtest/gtest.h
+               gtest/gtest_main.cc
+               list.h)
+
+#add_executable(main main.cpp vector.h basic_vector.h list.h)
 
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=c++17 -pedantic")
@@ -22,3 +33,4 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
 endif()
 
 target_link_libraries(vector_testing -lpthread)
+target_link_libraries(list_testing -lpthread)
