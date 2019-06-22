@@ -165,13 +165,6 @@ struct list {
     return iterator(next);
   }
 
-  iterator erase(const_iterator first, const_iterator last) noexcept {
-    while (first != last) {
-      first = erase(first);
-    }
-    return iterator(last.n_);
-  }
-
   void splice(const_iterator pos, list&, const_iterator first,
               const_iterator last) noexcept {
     node* old_first_prev = first.n_->prev_;
