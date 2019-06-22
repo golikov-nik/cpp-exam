@@ -8,6 +8,15 @@
 #include <optional>
 #include <cassert>
 
+template <bool>
+struct enable_if {
+};
+
+template <>
+struct enable_if<true> {
+  using type = void;
+};
+
 template <typename T>
 struct list {
  private:
