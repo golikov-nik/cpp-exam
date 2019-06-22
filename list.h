@@ -198,7 +198,7 @@ struct list {
     }
 
     template <typename... Args>
-    node(node* prev, node* next, Args&&... args)
+    node(node* prev, node* next, Args&& ... args)
             : value_(std::forward<Args>(args)...), prev_(prev), next_(next) {
     }
   } end_;
@@ -207,8 +207,14 @@ struct list {
 
 template <typename T>
 template <typename U>
-struct list<T>::typed_iterator
-        : std::iterator<std::bidirectional_iterator_tag, U> {
+struct list<T>::typed_iterator {
+  using iterator_category = std::bidirectional_iterator_tag;
+  using value_type = U;
+  using difference_type = ptrdiff_t;
+  using pointer = U*;
+  using reference = U&;
+  using const_reference = U const&;
+
   typed_iterator() noexcept = default;
 
   typed_iterator(typed_iterator const& other) noexcept = default;
@@ -251,11 +257,11 @@ struct list<T>::typed_iterator
     return result;
   }
 
-  U& operator*() const noexcept {
+  reference operator*() const noexcept {
     return *n_->value_;
   }
 
-  U* operator->() const noexcept {
+  pointer operator->() const noexcept {
     return n_->value_.operator->();
   }
 
