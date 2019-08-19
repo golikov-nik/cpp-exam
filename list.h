@@ -8,15 +8,6 @@
 #include <optional>
 #include <cassert>
 
-template <bool>
-struct enable_if {
-};
-
-template <>
-struct enable_if<true> {
-  using type = void;
-};
-
 template <typename T>
 struct list {
  private:
@@ -285,4 +276,4 @@ struct list<T>::typed_iterator {
   node* n_;
 };
 
-#endif //LIST_H
+#endif //  LIST_H
